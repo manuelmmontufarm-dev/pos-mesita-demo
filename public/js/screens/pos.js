@@ -4,6 +4,7 @@ import { state, subscribe, openMesa, refreshOrden, loadFloor, clearCurrent } fro
 import { h, icon, toast, withLoading, confirmDialog, openModal, closeModal } from '../ui.js';
 import { money, productIcon, RESTAURANT_INFO, formatDateTime } from '../format.js';
 import { openCobroModal } from './cobro.js';
+import { getDiners, setDiners } from '../diners.js';
 
 let activeCategory = 'all';
 let searchTerm = '';
@@ -46,6 +47,74 @@ export async function renderPOS(root, mesaId) {
 
   paint(root);
   unsub = subscribe(() => paint(root));
+
+  maybePromptDiners();
+}
+
+// Prompt for party size only on a fresh orden with no items and no stored count.
+function maybePromptDiners() {
+  const orden = state.current.orden;
+  if (!orden?.id) return;
+  const detalles = orden.detalles || [];
+  if (detalles.length > 0) return;
+  if (getDiners(orden.id) != null) return;
+  openDinersModal({ initial: 2, canCancel: false });
+}
+
+function openDinersModal({ initial = 2, canCancel = true } = {}) {
+  const orden = state.current.orden;
+  if (!orden?.id) return;
+  let value = Math.max(1, Math.min(20, Number(initial) || 2));
+
+  const display = h('div', {
+    style: { fontSize: '3rem', fontWeight: 800, textAlign: 'center', margin: '12px 0', color: 'var(--brand-600)' },
+  }, String(value));
+
+  const setVal = (n) => {
+    value = Math.max(1, Math.min(20, n));
+    display.textContent = String(value);
+  };
+
+  const pad = h('div', {
+    style: {
+      display: 'grid', gridTemplateColumns: 'repeat(5, 1fr)', gap: '8px', margin: '6px 0 4px',
+    },
+  });
+  for (let i = 1; i <= 20; i++) {
+    pad.appendChild(h('button', {
+      class: 'btn btn-outline',
+      style: { padding: '10px 0', fontWeight: 700 },
+      onclick: () => setVal(i),
+    }, String(i)));
+  }
+
+  const stepRow = h('div', { style: { display: 'flex', gap: '8px', justifyContent: 'center', marginBottom: '8px' } },
+    h('button', { class: 'btn btn-ghost', onclick: () => setVal(value - 1) }, '−'),
+    h('button', { class: 'btn btn-ghost', onclick: () => setVal(value + 1) }, '+'),
+  );
+
+  const body = h('div', {},
+    h('div', { style: { textAlign: 'center', color: 'var(--mute)', fontSize: '0.92rem' } }, 'Selecciona el número de comensales'),
+    display,
+    stepRow,
+    pad,
+  );
+
+  const footer = h('div', { style: { display: 'flex', gap: '8px', justifyContent: 'flex-end' } },
+    canCancel ? h('button', { class: 'btn btn-ghost', onclick: () => closeModal() }, 'Cancelar') : null,
+    h('button', {
+      class: 'btn btn-primary',
+      onclick: () => {
+        setDiners(orden.id, value);
+        closeModal();
+        // Force a repaint of the sidebar so the new count shows up.
+        const root = document.getElementById('view-root');
+        if (root) paint(root);
+      },
+    }, 'Confirmar'),
+  );
+
+  openModal({ title: '¿Cuántas personas?', body, footer });
 }
 
 function paint(root) {
@@ -175,10 +244,22 @@ function buildSidebar() {
   const orden = state.current.orden || {};
   const detalles = orden.detalles || [];
 
+  const diners = getDiners(orden.id);
   side.appendChild(h('div', { class: 'precuenta-head' },
     h('div', {},
       h('div', { class: 'ptable' }, state.current.mesa?.nombre || 'Mesa'),
       h('div', { class: 'ptag' }, `${detalles.length} ítem${detalles.length === 1 ? '' : 's'} · Orden #${(orden.id || '').slice(0, 8)}`),
+      h('div', {
+        style: { display: 'flex', alignItems: 'center', gap: '6px', marginTop: '4px', fontSize: '0.85rem', color: 'var(--ink-2)' },
+      },
+        h('span', {}, `👥 ${diners != null ? diners : '—'} persona${diners === 1 ? '' : 's'}`),
+        h('button', {
+          class: 'btn btn-ghost btn-sm',
+          style: { padding: '2px 6px', minHeight: 'auto', fontSize: '0.8rem' },
+          title: 'Editar número de personas',
+          onclick: () => openDinersModal({ initial: diners || 2, canCancel: true }),
+        }, '✏️'),
+      ),
     ),
     h('button', { class: 'btn btn-ghost btn-sm', onclick: () => { location.hash = '#/mesas'; } }, iconWrap('back', null, 14), 'Mesas'),
   ));
@@ -377,26 +458,46 @@ function buildPrintRegion() {
   const orden = state.current.orden || {};
   const detalles = orden.detalles || [];
   const t = state.current.totales || {};
+  const diners = getDiners(orden.id);
+  const now = new Date();
+  const fecha = now.toLocaleDateString('es-EC');
+  const hora = now.toLocaleTimeString('es-EC', { hour: '2-digit', minute: '2-digit' });
+
   const wrap = h('div', { class: 'print-only' });
 
-  // Restaurant header
-  wrap.appendChild(h('div', { style: { textAlign: 'center', marginBottom: '12px' } },
-    h('div', { style: { fontWeight: 800, fontSize: '1.15rem', letterSpacing: '0.04em' } }, RESTAURANT_INFO.razonSocial),
-    h('div', { style: { fontSize: '0.82rem' } }, 'R.U.C. ' + RESTAURANT_INFO.ruc),
-    h('div', { style: { fontSize: '0.82rem' } }, RESTAURANT_INFO.direccion),
-    h('div', { style: { fontSize: '0.82rem' } }, 'Tel. ' + RESTAURANT_INFO.telefono),
+  // Restaurant header — cleaner, centered
+  wrap.appendChild(h('div', { style: { textAlign: 'center', marginBottom: '10px' } },
+    h('div', { style: { fontWeight: 800, fontSize: '1.25rem', letterSpacing: '0.05em' } }, RESTAURANT_INFO.razonSocial),
+    h('div', { style: { fontSize: '0.8rem', color: '#444' } }, RESTAURANT_INFO.direccion),
+    h('div', { style: { fontSize: '0.8rem', color: '#444' } }, 'Tel. ' + RESTAURANT_INFO.telefono + ' · R.U.C. ' + RESTAURANT_INFO.ruc),
   ));
 
-  wrap.appendChild(h('div', { style: { borderTop: '1px dashed #475569', borderBottom: '1px dashed #475569', padding: '8px 0', margin: '8px 0', textAlign: 'center', fontWeight: 700, letterSpacing: '0.08em' } }, 'PRECUENTA'));
-
-  wrap.appendChild(h('div', { style: { display: 'flex', justifyContent: 'space-between', fontSize: '0.85rem', marginBottom: '8px' } },
-    h('div', {}, 'Mesa: ' + (state.current.mesa?.nombre || '—'),
-      h('br'), 'Orden: #' + (orden.id || '').slice(0, 8),
-    ),
-    h('div', { style: { textAlign: 'right' } }, 'Fecha: ' + formatDateTime(),
-      h('br'), orden.mesero ? ('Mesero: ' + orden.mesero) : ''),
+  // Prominent boxed stamp — no fiscal value
+  wrap.appendChild(h('div', {
+    style: {
+      border: '2px solid #000', padding: '10px', margin: '12px 0', textAlign: 'center',
+      fontWeight: 800, letterSpacing: '0.08em', fontSize: '0.95rem', lineHeight: 1.3,
+    },
+  },
+    h('div', {}, 'DOCUMENTO INFORMATIVO'),
+    h('div', { style: { fontSize: '0.78rem', fontWeight: 700, marginTop: '2px' } }, 'SIN VALIDEZ TRIBUTARIA'),
   ));
 
+  // Meta grid: mesa, personas, fecha, hora, mesero
+  const metaRow = (label, value) => h('div', { style: { display: 'flex', justifyContent: 'space-between', fontSize: '0.85rem', padding: '2px 0' } },
+    h('span', { style: { color: '#444' } }, label),
+    h('span', { style: { fontWeight: 700 } }, value),
+  );
+  wrap.appendChild(h('div', { style: { marginBottom: '10px', borderBottom: '1px dashed #000', paddingBottom: '8px' } },
+    metaRow('Mesa', state.current.mesa?.nombre || '—'),
+    metaRow('Personas', diners != null ? String(diners) : '—'),
+    metaRow('Fecha', fecha),
+    metaRow('Hora', hora),
+    orden.mesero ? metaRow('Mesero', String(orden.mesero)) : null,
+    metaRow('Orden', '#' + (orden.id || '').slice(0, 8)),
+  ));
+
+  // Items
   const table = h('table', {});
   table.appendChild(h('thead', {},
     h('tr', {},
@@ -418,6 +519,7 @@ function buildPrintRegion() {
   table.appendChild(tb);
   wrap.appendChild(table);
 
+  // Totals
   wrap.appendChild(h('div', { style: { marginTop: '14px', display: 'flex', justifyContent: 'flex-end' } },
     h('div', { style: { minWidth: '260px' } },
       h('div', { style: { display: 'flex', justifyContent: 'space-between', padding: '2px 0' } },
@@ -426,17 +528,19 @@ function buildPrintRegion() {
         h('span', {}, 'IVA 15%'), h('span', {}, money(t.iva))),
       h('div', { style: { display: 'flex', justifyContent: 'space-between', padding: '2px 0' } },
         h('span', {}, 'Servicio 10%'), h('span', {}, money(t.servicio))),
-      h('div', { style: { display: 'flex', justifyContent: 'space-between', padding: '6px 0', borderTop: '1px solid #000', fontWeight: 800, fontSize: '1.05rem', marginTop: '4px' } },
+      h('div', { style: { display: 'flex', justifyContent: 'space-between', padding: '6px 0', borderTop: '1px solid #000', fontWeight: 800, fontSize: '1.1rem', marginTop: '4px' } },
         h('span', {}, 'TOTAL'), h('span', {}, money(t.total))),
     ),
   ));
 
-  wrap.appendChild(h('div', { style: { marginTop: '20px', fontSize: '0.78rem', textAlign: 'center', borderTop: '1px dashed #475569', paddingTop: '8px' } },
-    'Este documento NO es una factura.',
+  // Footer disclaimer
+  wrap.appendChild(h('div', {
+    style: { marginTop: '20px', fontSize: '0.78rem', textAlign: 'center', borderTop: '1px dashed #000', paddingTop: '10px', lineHeight: 1.5 },
+  },
+    'Esta precuenta NO cierra la mesa. Puede seguir agregando o modificando productos.',
     h('br'),
     'Solicite su factura al momento de pagar.',
-    h('br'), h('br'),
-    'Gracias por su visita.'));
+  ));
   return wrap;
 }
 

@@ -234,26 +234,36 @@ function removePayment(id) {
   render();
 }
 
-// ---- Factura electrónica toggle + form ----
+// ---- Factura type chips (Consumidor Final vs Factura Electrónica) ----
 function buildFacturaToggle() {
-  const forced = ctx.facturaForced;
-  const subtitle = forced
-    ? `Obligatoria (total ≥ ${money(FACTURA_AUTO_THRESHOLD)}). Datos del cliente requeridos.`
-    : (ctx.facturaOn ? 'Se emitirá una factura con datos del cliente' : 'Sin factura — CONSUMIDOR FINAL');
-  return h('div', { class: 'toggle-row', style: { marginTop: '18px' } },
-    h('div', {},
-      h('div', { class: 'tt' }, 'Factura electrónica'),
-      h('div', { class: 'ts' }, subtitle),
+  const autoFE = ctx.total >= FACTURA_AUTO_THRESHOLD;
+  const subtitle = autoFE && ctx.facturaOn
+    ? `Preseleccionado por monto ≥ ${money(FACTURA_AUTO_THRESHOLD)}. Puedes cambiarlo si el cliente lo prefiere.`
+    : (ctx.facturaOn
+      ? 'Se emitirá factura electrónica con datos del cliente.'
+      : 'Nota de venta para CONSUMIDOR FINAL. No requiere datos del cliente.');
+
+  const chip = (active, label, sub, onClick) => h('button', {
+    class: 'btn ' + (active ? 'btn-primary' : 'btn-outline'),
+    style: {
+      flex: 1, display: 'flex', flexDirection: 'column', alignItems: 'flex-start',
+      padding: '12px 14px', textAlign: 'left', minHeight: '64px',
+    },
+    onclick: onClick,
+  },
+    h('span', { style: { fontWeight: 700 } }, label),
+    h('span', { style: { fontSize: '0.78rem', opacity: 0.85, marginTop: '2px' } }, sub),
+  );
+
+  return h('div', { style: { marginTop: '18px' } },
+    h('div', { style: { fontSize: '0.85rem', fontWeight: 700, marginBottom: '8px', color: 'var(--ink-2)' } }, 'Tipo de comprobante'),
+    h('div', { style: { display: 'flex', gap: '10px' } },
+      chip(!ctx.facturaOn, 'Consumidor Final', 'Sin datos del cliente',
+        () => { ctx.facturaOn = false; render(); }),
+      chip(ctx.facturaOn, 'Factura Electrónica', 'Requiere cédula/RUC y email',
+        () => { ctx.facturaOn = true; render(); }),
     ),
-    h('label', { class: 'switch' },
-      h('input', {
-        type: 'checkbox',
-        checked: ctx.facturaOn ? 'checked' : null,
-        disabled: forced ? 'disabled' : null,
-        onchange: (e) => { ctx.facturaOn = e.target.checked; render(); },
-      }),
-      h('span', { class: 'slider' }),
-    ),
+    h('div', { style: { fontSize: '0.78rem', color: 'var(--mute)', marginTop: '6px' } }, subtitle),
   );
 }
 
@@ -403,12 +413,23 @@ function showSuccess(doc) {
     (doc.autorizacion_sri || doc.autorizacionSRI) ? h('div', { style: { marginTop: '14px', fontSize: '0.8rem', color: 'var(--mute)' } },
       'Autorización SRI: ', h('span', { style: { fontFamily: 'monospace' } }, String(doc.autorizacion_sri || doc.autorizacionSRI))) : null,
   );
+  const clienteEmail = ctx.facturaOn ? (ctx.cliente.email || '').trim() : '';
+  const footerButtons = [
+    h('button', { class: 'btn btn-outline', onclick: () => window.print() }, 'Imprimir factura'),
+  ];
+  if (ctx.facturaOn && clienteEmail) {
+    // STUB: backend email endpoint is not wired yet. Replace this with a real
+    // POST /api/documentos/:id/email once the SRI mail flow is implemented.
+    footerButtons.push(h('button', {
+      class: 'btn btn-outline',
+      onclick: () => toast('Enviado a ' + clienteEmail, 'ok'),
+    }, '📧 Enviar al correo del cliente'));
+  }
+  footerButtons.push(h('button', { class: 'btn btn-primary', onclick: () => closeModal() }, 'Listo'));
+
   openModal({
     title: 'Cobro completado', body,
-    footer: h('div', { style: { display: 'flex', gap: '8px' } },
-      h('button', { class: 'btn btn-outline', onclick: () => window.print() }, 'Imprimir factura'),
-      h('button', { class: 'btn btn-primary', onclick: () => closeModal() }, 'Listo'),
-    ),
+    footer: h('div', { style: { display: 'flex', gap: '8px', flexWrap: 'wrap' } }, ...footerButtons),
   });
 }
 
@@ -416,40 +437,50 @@ function installFacturaPrintRegion(doc) {
   const existing = document.getElementById('factura-print');
   if (existing) existing.remove();
 
-  const cliente = ctx.facturaOn ? buildCliente() : { razon_social: 'CONSUMIDOR FINAL', cedula: '9999999999', email: '', direccion: 'Ecuador' };
+  const cliente = ctx.facturaOn ? buildCliente() : { razon_social: 'CONSUMIDOR FINAL', cedula: '9999999999', email: '', direccion: 'Ecuador', tipo: 'N' };
   const t = ctx.totales || {};
+  const auth = doc.autorizacion_sri || doc.autorizacionSRI;
   const wrap = h('div', { class: 'print-only', id: 'factura-print' });
 
-  wrap.appendChild(h('div', { style: { textAlign: 'center', marginBottom: '12px' } },
-    h('div', { style: { fontWeight: 800, fontSize: '1.15rem', letterSpacing: '0.04em' } }, RESTAURANT_INFO.razonSocial),
-    h('div', { style: { fontSize: '0.82rem' } }, 'R.U.C. ' + RESTAURANT_INFO.ruc),
-    h('div', { style: { fontSize: '0.82rem' } }, RESTAURANT_INFO.direccion),
-    h('div', { style: { fontSize: '0.82rem' } }, 'Tel. ' + RESTAURANT_INFO.telefono + ' · ' + RESTAURANT_INFO.email),
+  // Header: restaurant identity, single block
+  wrap.appendChild(h('div', { style: { textAlign: 'center', marginBottom: '8px' } },
+    h('div', { style: { fontWeight: 800, fontSize: '1.25rem', letterSpacing: '0.05em' } }, RESTAURANT_INFO.razonSocial),
+    h('div', { style: { fontSize: '0.78rem', color: '#444' } }, RESTAURANT_INFO.direccion),
+    h('div', { style: { fontSize: '0.78rem', color: '#444' } }, 'Tel. ' + RESTAURANT_INFO.telefono + ' · R.U.C. ' + RESTAURANT_INFO.ruc),
   ));
 
+  // Document type stamp
   wrap.appendChild(h('div', {
-    style: { borderTop: '2px solid #000', borderBottom: '2px solid #000', padding: '8px 0', margin: '8px 0', textAlign: 'center', fontWeight: 800, fontSize: '1rem', letterSpacing: '0.12em' }
-  }, 'FACTURA  ·  ' + (ctx.facturaOn ? 'ELECTRÓNICA' : 'CONSUMIDOR FINAL')));
+    style: { border: '2px solid #000', padding: '8px', margin: '10px 0', textAlign: 'center', fontWeight: 800, fontSize: '0.95rem', letterSpacing: '0.1em' },
+  }, ctx.facturaOn ? 'FACTURA ELECTRÓNICA' : 'NOTA DE VENTA — CONSUMIDOR FINAL'));
 
-  wrap.appendChild(h('div', { style: { display: 'flex', justifyContent: 'space-between', fontSize: '0.85rem', marginBottom: '10px' } },
-    h('div', {},
-      h('div', {}, h('strong', {}, 'No.'), ' ' + String(doc.id || '').slice(0, 12)),
-      h('div', {}, h('strong', {}, 'Fecha:'), ' ' + (doc.fecha_emision || doc.fechaEmision || todayDDMMYYYY())),
-      h('div', {}, h('strong', {}, 'Hora:'), ' ' + formatDateTime()),
-    ),
-    h('div', { style: { textAlign: 'right' } },
-      h('div', {}, h('strong', {}, 'Mesa:'), ' ' + (ctx.mesa?.nombre || '—')),
-      doc.autorizacion_sri || doc.autorizacionSRI ? h('div', {}, h('strong', {}, 'Aut. SRI:'), ' ' + String(doc.autorizacion_sri || doc.autorizacionSRI).slice(0, 14)) : null,
-    ),
+  // Meta: two-column compact grid
+  const metaRow = (label, value) => h('div', { style: { display: 'flex', justifyContent: 'space-between', fontSize: '0.82rem', padding: '2px 0' } },
+    h('span', { style: { color: '#444' } }, label),
+    h('span', { style: { fontWeight: 700 } }, value),
+  );
+  wrap.appendChild(h('div', { style: { marginBottom: '10px', borderBottom: '1px dashed #000', paddingBottom: '6px' } },
+    metaRow('Documento', '#' + String(doc.id || '').slice(0, 12)),
+    metaRow('Fecha', doc.fecha_emision || doc.fechaEmision || todayDDMMYYYY()),
+    metaRow('Hora', formatDateTime()),
+    metaRow('Mesa', ctx.mesa?.nombre || '—'),
+    auth ? metaRow('Aut. SRI', String(auth).slice(0, 20)) : null,
   ));
 
-  // Cliente
-  wrap.appendChild(h('div', { style: { border: '1px solid #000', padding: '8px', fontSize: '0.85rem', marginBottom: '10px' } },
-    h('div', {}, h('strong', {}, 'Cliente: '), cliente.razon_social),
-    h('div', {}, h('strong', {}, (cliente.tipo === 'J' ? 'RUC: ' : 'C.I.: ')), cliente.tipo === 'J' ? cliente.ruc : cliente.cedula),
-    cliente.email ? h('div', {}, h('strong', {}, 'Email: '), cliente.email) : null,
-    cliente.direccion ? h('div', {}, h('strong', {}, 'Dirección: '), cliente.direccion) : null,
-  ));
+  // Cliente — only render the rich block for facturas; CF gets a one-liner
+  if (ctx.facturaOn) {
+    wrap.appendChild(h('div', { style: { padding: '8px 0', fontSize: '0.85rem', marginBottom: '10px', borderBottom: '1px dashed #000' } },
+      h('div', { style: { fontWeight: 700, marginBottom: '4px' } }, 'Cliente'),
+      h('div', {}, cliente.razon_social),
+      h('div', { style: { color: '#444' } }, (cliente.tipo === 'J' ? 'RUC: ' : 'C.I.: ') + (cliente.tipo === 'J' ? cliente.ruc : cliente.cedula)),
+      cliente.email ? h('div', { style: { color: '#444' } }, cliente.email) : null,
+      cliente.direccion ? h('div', { style: { color: '#444' } }, cliente.direccion) : null,
+    ));
+  } else {
+    wrap.appendChild(h('div', { style: { padding: '6px 0', fontSize: '0.85rem', marginBottom: '10px', borderBottom: '1px dashed #000', textAlign: 'center', fontStyle: 'italic' } },
+      'CONSUMIDOR FINAL',
+    ));
+  }
 
   // Items
   const detalles = ctx.orden?.detalles || [];
