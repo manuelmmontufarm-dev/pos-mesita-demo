@@ -15,7 +15,7 @@ export const isCedula = (v) => /^\d{10}$/.test(String(v || '').trim());
 export const isRuc = (v) => /^\d{13}$/.test(String(v || '').trim());
 export const isEmail = (v) => /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(String(v || '').trim());
 
-export const ESTADO_MESA = { L: 'Disponible', O: 'Ocupada', P: 'Lista para cobrar', C: 'Cerrada recientemente' };
+export const ESTADO_MESA = { L: 'Desocupada', O: 'Ocupada', P: 'Lista para cobrar', C: 'Cerrada recientemente' };
 export const ESTADO_ORDEN = { A: 'Abierta', C: 'Cerrada', X: 'Cancelada' };
 
 export const PAYMENT_METHODS = [
