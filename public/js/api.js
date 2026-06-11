@@ -19,6 +19,7 @@ async function request(path, { method = 'GET', body } = {}) {
   let data = null;
   try { data = await res.json(); } catch (_) { /* empty body */ }
   if (!res.ok) {
+    if (res.status === 401) window.dispatchEvent(new CustomEvent('session:expired'));
     const msg = (data && (data.error || data.message)) || `HTTP ${res.status}`;
     const err = new Error(msg);
     err.status = res.status;
@@ -72,3 +73,13 @@ export async function getOrCreateOrden(mesa) {
   const created = await createOrden({ mesa_id: mesa.id, descripcion: '', mesero: '' });
   return await getOrden(created.id);
 }
+export const guestLogin = () => request('/auth/guest', { method: 'POST' });
+export const createMesa = (body) => request('/mesa/', { method: 'POST', body });
+export const deleteMesa = (id) => request(`/mesa/${id}/`, { method: 'DELETE' });
+export const createProducto = (body) => request('/producto/', { method: 'POST', body });
+export const updateProducto = (id, body) => request(`/producto/${id}/`, { method: 'PATCH', body });
+export const deleteProducto = (id) => request(`/producto/${id}/`, { method: 'DELETE' });
+export const listCategorias = () => request('/producto/categoria/');
+export const createCategoria = (body) => request('/producto/categoria/', { method: 'POST', body });
+export const updateCategoria = (id, body) => request(`/producto/categoria/${id}/`, { method: 'PATCH', body });
+export const deleteCategoria = (id) => request(`/producto/categoria/${id}/`, { method: 'DELETE' });
