@@ -85,6 +85,7 @@ async function crearMesa(data) {
 async function actualizarMesa(id, data) {
   const prisma = getPrisma();
   const updateData = {};
+  if (data.nombre !== undefined) updateData.nombre = data.nombre;
   if (data.estado !== undefined) updateData.estado = data.estado;
   if (data.capacidad !== undefined) updateData.capacidad = data.capacidad;
   if (data.ubicacion !== undefined) updateData.ubicacion = data.ubicacion;
@@ -94,6 +95,10 @@ async function actualizarMesa(id, data) {
     where: { id },
     data: updateData,
   });
+}
+
+async function eliminarMesa(id) {
+  return actualizarMesa(id, { activa: false });
 }
 
 /**
@@ -117,6 +122,7 @@ module.exports = {
   obtenerMesa,
   crearMesa,
   actualizarMesa,
+  eliminarMesa,
   marcarPagando,
   liberarMesa,
 };

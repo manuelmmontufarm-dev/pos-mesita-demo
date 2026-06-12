@@ -17,12 +17,14 @@ import { renderFloor } from './screens/floor.js';
 import { renderPOS } from './screens/pos.js';
 import { renderHistorial } from './screens/historial.js';
 import { renderMesasConfig } from './screens/mesas-config.js';
+import { renderMenu } from './screens/menu.js';
 
 const ROUTES = [
   { match: /^#\/mesa\/(.+)$/,   render: (root, m) => renderPOS(root, decodeURIComponent(m[1])) },
   { match: /^#\/mesas$/,        render: (root) => renderFloor(root) },
   { match: /^#\/historial$/,    render: (root) => renderHistorial(root) },
   { match: /^#\/mesas-config$/, render: (root) => renderMesasConfig(root) },
+  { match: /^#\/menu$/,          render: (root) => renderMenu(root) },
   { match: /^#?\/?$/,           render: () => { location.hash = '#/mesas'; } },
 ];
 
@@ -76,6 +78,7 @@ function paintHeader() {
     nav.appendChild(navLink('#/mesas', '🪑 Mesas'));
     nav.appendChild(navLink('#/historial', '🧾 Cuentas cerradas'));
     nav.appendChild(navLink('#/mesas-config', '🪑 Config mesas'));
+    nav.appendChild(navLink('#/menu', '📋 Menú'));
     head.appendChild(nav);
   }
 

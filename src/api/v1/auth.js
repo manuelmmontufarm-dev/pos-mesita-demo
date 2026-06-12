@@ -15,6 +15,11 @@ router.post('/login', asyncHandler(async (req, res) => {
   res.json(result);
 }));
 
+router.post('/guest', asyncHandler(async (req, res) => {
+  const result = await platformService.guestLogin();
+  res.json(result);
+}));
+
 router.post('/logout', asyncHandler(async (req, res) => {
   const token = bearerToken(req);
   const result = await platformService.logout(token);

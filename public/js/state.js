@@ -106,7 +106,7 @@ export async function checkConnection() {
 
 export async function loadFloor() {
   await loadRestaurantSettings();
-  const [m, p] = await Promise.all([api.listMesas(), api.listProductos()]);
+  const [m, p] = await Promise.all([api.listMesas(), api.listProductos({ disponible: true })]);
   state.mesas = (m && m.results) || [];
   state.productos = (p && p.results) || [];
   const seen = new Map();

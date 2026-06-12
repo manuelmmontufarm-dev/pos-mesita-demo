@@ -36,6 +36,7 @@ export const health = () => fetch(BASE + '/health/').then((r) => r.ok);
 
 export const login = (body) => request('/auth/login', { method: 'POST', body });
 export const register = (body) => request('/auth/register', { method: 'POST', body });
+export const guestLogin = () => request('/auth/guest', { method: 'POST' });
 export const logout = () => request('/auth/logout', { method: 'POST' });
 export const me = () => request('/auth/me');
 
@@ -50,9 +51,19 @@ export const listMesas = (params = {}) => {
 export const getMesa = (id) => request(`/mesa/${id}/`);
 export const createMesa = (body) => request('/mesa/', { method: 'POST', body });
 export const updateMesa = (id, patch) => request(`/mesa/${id}/`, { method: 'PATCH', body: patch });
-export const deleteMesa = (id) => updateMesa(id, { activa: false });
+export const deleteMesa = (id) => request(`/mesa/${id}/`, { method: 'DELETE' });
 
-export const listProductos = () => request('/producto/?result_size=200');
+export const listProductos = (params = {}) => {
+  const qs = new URLSearchParams({ result_size: '200', ...params }).toString();
+  return request('/producto/?' + qs);
+};
+export const createProducto = (body) => request('/producto/', { method: 'POST', body });
+export const updateProducto = (id, patch) => request(`/producto/${id}/`, { method: 'PATCH', body: patch });
+export const deleteProducto = (id) => request(`/producto/${id}/`, { method: 'DELETE' });
+export const listCategorias = () => request('/producto/categoria/');
+export const createCategoria = (body) => request('/producto/categoria/', { method: 'POST', body });
+export const updateCategoria = (id, patch) => request(`/producto/categoria/${id}/`, { method: 'PATCH', body: patch });
+export const deleteCategoria = (id) => request(`/producto/categoria/${id}/`, { method: 'DELETE' });
 
 export const listOrdenes = (params = {}) => {
   const qs = new URLSearchParams({ result_size: '50', ...params }).toString();

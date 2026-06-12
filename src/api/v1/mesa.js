@@ -127,4 +127,9 @@ router.patch('/:id/', asyncHandler(async (req, res) => {
   res.json(mesa);
 }));
 
+router.delete('/:id/', asyncHandler(async (req, res) => {
+  await mesaService.eliminarMesa(req.params.id);
+  res.status(204).send();
+}));
+
 module.exports = router;

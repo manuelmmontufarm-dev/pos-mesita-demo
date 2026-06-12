@@ -1,5 +1,5 @@
 import * as api from '../api.js';
-import { state, saveSession, updateRestaurantLocal, saveApiKey, checkConnection } from '../state.js';
+import { state, saveSession, updateRestaurantLocal } from '../state.js';
 import { h, toast, withLoading } from '../ui.js';
 
 let mode = 'login';
@@ -19,11 +19,11 @@ export function renderAuth(root, onAuthenticated) {
       ),
     ),
     h('div', { class: 'auth-tabs' },
-      tabButton('login', 'Sign in', () => { mode = 'login'; renderAuth(root, onAuthenticated); }),
+      tabButton('login', 'Iniciar sesion', () => { mode = 'login'; renderAuth(root, onAuthenticated); }),
       tabButton('register', 'Crear cuenta', () => { mode = 'register'; renderAuth(root, onAuthenticated); }),
     ),
     mode === 'login' ? loginForm(onAuthenticated) : registerForm(onAuthenticated),
-    legacyDemoButton(onAuthenticated),
+    guestButton(onAuthenticated),
   );
 
   root.appendChild(h('div', { class: 'auth-page' }, card));
@@ -33,32 +33,97 @@ export function renderSetup(root, onCompleted) {
   root.classList.remove('full');
   root.innerHTML = '';
 
-  const mesaCount = h('input', { class: 'input', type: 'number', min: '1', max: '80', value: '10' });
+  let areas = [
+    { name: 'Salon', count: 6 },
+    { name: 'Terraza', count: 4 },
+  ];
+
   const seedMenu = h('input', { type: 'checkbox', checked: 'checked' });
+  const areasContainer = h('div', { class: 'areas-list' });
+
+  function renderAreas() {
+    areasContainer.innerHTML = '';
+    areas.forEach((area, index) => {
+      const nameInput = h('input', {
+        class: 'input',
+        value: area.name,
+        placeholder: 'Nombre del area',
+        oninput: (e) => { areas[index].name = e.target.value; },
+      });
+      const countInput = h('input', {
+        class: 'input',
+        type: 'number',
+        min: '1',
+        max: '40',
+        value: String(area.count),
+        oninput: (e) => { areas[index].count = parseInt(e.target.value, 10) || 1; },
+      });
+      areasContainer.appendChild(h('div', { class: 'area-row' },
+        h('div', { class: 'area-fields' },
+          h('div', { class: 'field', style: { flex: 1 } },
+            h('label', {}, 'Area'),
+            nameInput,
+          ),
+          h('div', { class: 'field field-sm' },
+            h('label', {}, 'Mesas'),
+            countInput,
+          ),
+        ),
+        h('button', {
+          class: 'btn btn-ghost btn-sm',
+          style: { color: 'var(--bad)', alignSelf: 'flex-end', marginBottom: '2px' },
+          title: 'Eliminar area',
+          onclick: () => {
+            areas.splice(index, 1);
+            renderAreas();
+          },
+        }, 'x'),
+      ));
+    });
+  }
+  renderAreas();
 
   const card = h('section', { class: 'auth-card setup-card' },
     h('div', { class: 'auth-brand' },
       h('div', { class: 'brand-mark auth-mark', 'aria-hidden': 'true' }, '🍽️'),
       h('div', {},
         h('h1', {}, state.restaurant?.name || 'Configurar restaurante'),
-        h('p', {}, 'Prepara las mesas iniciales y un menu base para empezar a vender.'),
+        h('p', {}, 'Define tus areas y cuantas mesas tiene cada una.'),
       ),
     ),
-    h('div', { class: 'field' },
-      h('label', {}, 'Numero de mesas iniciales'),
-      mesaCount,
+    h('div', { style: { marginBottom: '16px' } },
+      h('div', {
+        style: { display: 'flex', justifyContent: 'space-between', alignItems: 'center', gap: '10px', marginBottom: '10px' },
+      },
+        h('strong', {}, 'Areas y mesas'),
+        h('button', {
+          class: 'btn btn-ghost btn-sm',
+          onclick: () => {
+            areas.push({ name: '', count: 4 });
+            renderAreas();
+          },
+        }, '+ Agregar area'),
+      ),
+      areasContainer,
     ),
-    h('label', { class: 'check-row' },
+    h('label', { class: 'check-row', style: { marginBottom: '16px' } },
       seedMenu,
       h('span', {}, 'Crear un menu base editable'),
     ),
     h('button', {
       class: 'btn btn-primary btn-lg',
       onclick: async (e) => {
+        const validAreas = areas
+          .map((area) => ({ name: area.name.trim(), count: Math.max(1, parseInt(area.count, 10) || 1) }))
+          .filter((area) => area.name);
+        if (!validAreas.length) {
+          toast('Agrega al menos un area con nombre y mesas.', 'bad');
+          return;
+        }
         await withLoading(e.currentTarget, async () => {
           try {
             const restaurant = await api.completeRestaurantSetup({
-              mesa_count: Number(mesaCount.value || 10),
+              areas: validAreas,
               seed_menu: seedMenu.checked,
             });
             updateRestaurantLocal(restaurant);
@@ -159,27 +224,27 @@ function registerForm(onAuthenticated) {
   );
 }
 
-function legacyDemoButton(onAuthenticated) {
-  return h('div', { class: 'legacy-demo' },
+function guestButton(onAuthenticated) {
+  return h('div', { class: 'legacy-demo', style: { flexDirection: 'column', gap: '8px' } },
+    h('div', { style: { textAlign: 'center', color: 'var(--mute)', fontSize: '0.82rem', margin: '4px 0' } }, 'o'),
     h('button', {
-      class: 'btn btn-ghost',
+      class: 'btn btn-outline btn-lg',
+      style: { width: '100%' },
       onclick: async (e) => {
         await withLoading(e.currentTarget, async () => {
-          if (!state.apiKey) {
-            toast('Primero configura una API key desde el modo demo.', 'bad');
-            return;
-          }
-          saveApiKey(state.apiKey);
-          await checkConnection();
-          if (state.connection === 'ok') {
-            toast('Entraste al Demo Restaurant', 'ok');
+          try {
+            const session = await api.guestLogin();
+            saveSession(session);
+            toast('Entraste al demo', 'ok');
             onAuthenticated && onAuthenticated();
-          } else {
-            toast('No se pudo entrar al demo con API key', 'bad');
+          } catch (err) {
+            toast(err.message || 'No se pudo entrar al demo', 'bad', 5000);
           }
         });
       },
-    }, 'Usar API key guardada'),
+    }, '🔍 Continuar como invitado'),
+    h('div', { style: { textAlign: 'center', color: 'var(--mute)', fontSize: '0.78rem' } },
+      'Acceso al restaurante demo sin registrarte.'),
   );
 }
 

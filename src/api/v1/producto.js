@@ -46,6 +46,29 @@ router.get('/', asyncHandler(async (req, res) => {
   res.json({ count: result.count, results: result.results.map(formatProducto) });
 }));
 
+router.get('/categoria/', asyncHandler(async (req, res) => {
+  const categorias = await catalogoService.listarCategorias();
+  res.json(categorias.map(formatCategoria));
+}));
+
+router.post('/categoria/', asyncHandler(async (req, res) => {
+  if (!req.body.nombre) {
+    return res.status(400).json({ error: 'Se requiere nombre.' });
+  }
+  const categoria = await catalogoService.crearCategoria(req.body);
+  res.status(201).json(formatCategoria(categoria));
+}));
+
+router.patch('/categoria/:id/', asyncHandler(async (req, res) => {
+  const categoria = await catalogoService.actualizarCategoria(req.params.id, req.body);
+  res.json(formatCategoria(categoria));
+}));
+
+router.delete('/categoria/:id/', asyncHandler(async (req, res) => {
+  await catalogoService.eliminarCategoria(req.params.id);
+  res.status(204).send();
+}));
+
 /**
  * @swagger
  * /producto/{id}/:
@@ -127,6 +150,11 @@ router.patch('/:id/', asyncHandler(async (req, res) => {
   res.json(formatProducto(p));
 }));
 
+router.delete('/:id/', asyncHandler(async (req, res) => {
+  await catalogoService.eliminarProducto(req.params.id);
+  res.status(204).send();
+}));
+
 function formatProducto(p) {
   return {
     id: p.id,
@@ -140,6 +168,16 @@ function formatProducto(p) {
     disponible: p.disponible,
     created_at: p.createdAt,
     updated_at: p.updatedAt,
+  };
+}
+
+function formatCategoria(c) {
+  return {
+    id: c.id,
+    nombre: c.nombre,
+    orden: c.orden,
+    activa: c.activa,
+    created_at: c.createdAt,
   };
 }
 

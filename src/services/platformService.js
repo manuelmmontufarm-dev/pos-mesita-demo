@@ -6,6 +6,7 @@ const env = require('../config/env');
 
 const DEMO_TENANT_SCHEMA = 'tenant_demo';
 const SESSION_DAYS = 30;
+const GUEST_DAYS = 1;
 let platformReadyPromise;
 
 async function ensurePlatformReady() {
@@ -17,7 +18,10 @@ async function ensurePlatformReady() {
       const demo = await ensureDemoRestaurant();
       await ensureTenantSchema(demo.tenantSchema);
       await copyPublicDataToTenant(demo.tenantSchema);
-    })();
+    })().catch((err) => {
+      platformReadyPromise = null;
+      throw err;
+    });
   }
   return platformReadyPromise;
 }
@@ -145,6 +149,33 @@ async function login(body) {
   return formatAuthResponse(user, membership.restaurant, membership.role, token);
 }
 
+async function guestLogin() {
+  await ensurePlatformReady();
+
+  const prisma = getPlatformPrisma();
+  const restaurant = await ensureDemoRestaurant();
+  const suffix = crypto.randomBytes(5).toString('hex');
+  const email = `guest-${suffix}@demo.mesita.local`;
+  const passwordHash = hashPassword(crypto.randomBytes(16).toString('hex'));
+
+  const user = await prisma.platformUser.create({
+    data: {
+      name: 'Invitado',
+      email,
+      passwordHash,
+      memberships: {
+        create: {
+          restaurantId: restaurant.id,
+          role: 'owner',
+        },
+      },
+    },
+  });
+
+  const token = await createSession(user.id, restaurant.id, GUEST_DAYS);
+  return formatAuthResponse(user, restaurant, 'owner', token);
+}
+
 async function logout(token) {
   if (!token) return { ok: true };
   const prisma = getPlatformPrisma();
@@ -209,22 +240,52 @@ async function completeSetup(restaurantId, body) {
   await ensureTenantSchema(restaurant.tenantSchema);
 
   const tenant = getTenantPrisma(restaurant.tenantSchema);
-  const mesaCount = clampInt(body.mesa_count ?? body.mesaCount ?? 10, 1, 80);
   const seedMenu = body.seed_menu !== undefined ? Boolean(body.seed_menu) : true;
+  const requestedAreas = Array.isArray(body.areas)
+    ? body.areas
+      .map((area) => ({
+        name: clean(area.name || area.nombre || area.ubicacion),
+        count: clampInt(area.count || area.mesas || area.mesa_count || 1, 1, 40),
+      }))
+      .filter((area) => area.name)
+    : [];
 
-  for (let i = 1; i <= mesaCount; i += 1) {
-    await tenant.mesa.upsert({
-      where: { id: `mesa-${String(i).padStart(2, '0')}` },
-      create: {
-        id: `mesa-${String(i).padStart(2, '0')}`,
-        nombre: `Mesa ${i}`,
-        capacidad: 4,
-        ubicacion: i <= 6 ? 'Salon' : 'Terraza',
-        estado: 'L',
-        activa: true,
-      },
-      update: {},
-    });
+  if (requestedAreas.length) {
+    let mesaIndex = 1;
+    for (const area of requestedAreas) {
+      for (let i = 1; i <= area.count && mesaIndex <= 80; i += 1) {
+        const id = `mesa-${String(mesaIndex).padStart(2, '0')}`;
+        await tenant.mesa.upsert({
+          where: { id },
+          create: {
+            id,
+            nombre: `Mesa ${i}`,
+            capacidad: 4,
+            ubicacion: area.name,
+            estado: 'L',
+            activa: true,
+          },
+          update: {},
+        });
+        mesaIndex += 1;
+      }
+    }
+  } else {
+    const mesaCount = clampInt(body.mesa_count ?? body.mesaCount ?? 10, 1, 80);
+    for (let i = 1; i <= mesaCount; i += 1) {
+      await tenant.mesa.upsert({
+        where: { id: `mesa-${String(i).padStart(2, '0')}` },
+        create: {
+          id: `mesa-${String(i).padStart(2, '0')}`,
+          nombre: `Mesa ${i}`,
+          capacidad: 4,
+          ubicacion: i <= 6 ? 'Salon' : 'Terraza',
+          estado: 'L',
+          activa: true,
+        },
+        update: {},
+      });
+    }
   }
 
   if (seedMenu) await seedStarterMenu(tenant);
@@ -270,9 +331,9 @@ async function updateSettings(restaurantId, body) {
   return publicRestaurant(updated);
 }
 
-async function createSession(userId, restaurantId) {
+async function createSession(userId, restaurantId, days = SESSION_DAYS) {
   const token = crypto.randomBytes(32).toString('base64url');
-  const expiresAt = new Date(Date.now() + SESSION_DAYS * 24 * 60 * 60 * 1000);
+  const expiresAt = new Date(Date.now() + days * 24 * 60 * 60 * 1000);
   await getPlatformPrisma().platformSession.create({
     data: {
       tokenHash: hashToken(token),
@@ -741,6 +802,7 @@ module.exports = {
   getDemoAuthContext,
   registerRestaurant,
   login,
+  guestLogin,
   logout,
   authenticateSession,
   completeSetup,

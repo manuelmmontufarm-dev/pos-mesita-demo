@@ -90,6 +90,15 @@ async function actualizarProducto(id, data) {
   });
 }
 
+async function eliminarProducto(id) {
+  const prisma = getPrisma();
+  return prisma.producto.update({
+    where: { id },
+    data: { disponible: false },
+    include: { categoria: true },
+  });
+}
+
 // ---------------------------------------------------------------------------
 // Categorias
 // ---------------------------------------------------------------------------
@@ -112,11 +121,40 @@ async function crearCategoria(data) {
   });
 }
 
+async function actualizarCategoria(id, data) {
+  const prisma = getPrisma();
+  const updateData = {};
+  if (data.nombre !== undefined) updateData.nombre = data.nombre;
+  if (data.orden !== undefined) updateData.orden = data.orden;
+  if (data.activa !== undefined) updateData.activa = data.activa;
+  return prisma.categoria.update({
+    where: { id },
+    data: updateData,
+  });
+}
+
+async function eliminarCategoria(id) {
+  const prisma = getPrisma();
+  return prisma.$transaction(async (tx) => {
+    await tx.producto.updateMany({
+      where: { categoriaId: id },
+      data: { categoriaId: null },
+    });
+    return tx.categoria.update({
+      where: { id },
+      data: { activa: false },
+    });
+  });
+}
+
 module.exports = {
   listarProductos,
   obtenerProducto,
   crearProducto,
   actualizarProducto,
+  eliminarProducto,
   listarCategorias,
   crearCategoria,
+  actualizarCategoria,
+  eliminarCategoria,
 };
