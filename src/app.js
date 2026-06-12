@@ -166,9 +166,17 @@ app.get('/sistema/api/v1/openapi.json', (req, res) => {
 });
 
 // ---------------------------------------------------------------------------
-// API routes (protected by API key)
+// API routes. Health and MesitaQR webhooks are public; all other API routes
+// require the Contifico-style API key.
 // ---------------------------------------------------------------------------
-app.use('/sistema/api/v1', requireApiKey, apiV1Router);
+function apiAuthUnlessPublic(req, res, next) {
+  if (req.path === '/health/' || req.path === '/mesitaqr/webhook/') {
+    return next();
+  }
+  return requireApiKey(req, res, next);
+}
+
+app.use('/sistema/api/v1', apiAuthUnlessPublic, apiV1Router);
 
 // Root redirect
 app.get('/', (req, res) => {
@@ -201,6 +209,9 @@ async function start() {
   }
 }
 
-start();
+if (require.main === module) {
+  start();
+}
 
 module.exports = app; // exported for tests
+module.exports.start = start;
