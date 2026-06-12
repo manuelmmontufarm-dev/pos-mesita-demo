@@ -31,7 +31,10 @@ async function request(path, { method = 'GET', body } = {}) {
 
 export const health = () => fetch(BASE + '/health/').then((r) => r.ok);
 
-export const listMesas = () => request('/mesa/?result_size=100');
+export const listMesas = (params = {}) => {
+  const qs = new URLSearchParams({ result_size: '100', ...params }).toString();
+  return request('/mesa/?' + qs);
+};
 export const getMesa = (id) => request(`/mesa/${id}/`);
 export const updateMesa = (id, patch) => request(`/mesa/${id}/`, { method: 'PATCH', body: patch });
 
@@ -75,7 +78,7 @@ export async function getOrCreateOrden(mesa) {
 }
 export const guestLogin = () => request('/auth/guest', { method: 'POST' });
 export const createMesa = (body) => request('/mesa/', { method: 'POST', body });
-export const deleteMesa = (id) => request(`/mesa/${id}/`, { method: 'DELETE' });
+export const deleteMesa = (id) => updateMesa(id, { activa: false });
 export const createProducto = (body) => request('/producto/', { method: 'POST', body });
 export const updateProducto = (id, body) => request(`/producto/${id}/`, { method: 'PATCH', body });
 export const deleteProducto = (id) => request(`/producto/${id}/`, { method: 'DELETE' });
