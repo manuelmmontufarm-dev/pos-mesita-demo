@@ -192,6 +192,7 @@ Tests use Jest + Supertest with mocked Prisma — no database required.
 
 ## Further Reading
 
+- [Production Handoff](docs/production-handoff.md)
 - [Deployment Guide (GitHub + Supabase + Railway)](docs/deployment-guide.md)
 - [MesitaQR Integration Guide](docs/mesitaqr-integration.md)
 - [Contifico Compatibility Guide](docs/contifico-compatibility.md)

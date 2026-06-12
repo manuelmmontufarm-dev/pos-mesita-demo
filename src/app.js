@@ -17,12 +17,15 @@ const { requireApiKey } = require('./middlewares/auth');
 const { notFoundHandler, errorHandler } = require('./middlewares/errorHandler');
 const { connectDatabase } = require('./config/database');
 const apiV1Router = require('./api/v1/index');
+const { ensurePlatformReady } = require('./services/platformService');
 
 const app = express();
 
 // ---------------------------------------------------------------------------
 // Security & infrastructure middleware
 // ---------------------------------------------------------------------------
+app.set('trust proxy', 1);
+
 app.use(helmet({
   contentSecurityPolicy: false, // disabled so Swagger UI inline scripts work
 }));
@@ -61,7 +64,7 @@ const swaggerOptions = {
       description: `
 Demo POS REST API for MesitaQR + Contifico integration testing.
 
-**Auth:** All endpoints require \`Authorization: Token <API_KEY>\` header.
+**Auth:** Use \`Authorization: Bearer <session>\` after login, or legacy \`Authorization: Token <API_KEY>\`.
 
 **Base path:** \`/sistema/api/v1/\`
 
@@ -73,7 +76,7 @@ Demo POS REST API for MesitaQR + Contifico integration testing.
       license: { name: 'MIT' },
     },
     servers: [
-      { url: `${env.APP_BASE_URL}/sistema/api/v1`, description: 'Current server' },
+      { url: '/sistema/api/v1', description: 'Current server' },
     ],
     components: {
       securitySchemes: {
@@ -166,17 +169,18 @@ app.get('/sistema/api/v1/openapi.json', (req, res) => {
 });
 
 // ---------------------------------------------------------------------------
-// API routes. Health and MesitaQR webhooks are public; all other API routes
-// require the Contifico-style API key.
+// API routes (protected by API key)
 // ---------------------------------------------------------------------------
-function apiAuthUnlessPublic(req, res, next) {
-  if (req.path === '/health/' || req.path === '/mesitaqr/webhook/') {
-    return next();
-  }
-  return requireApiKey(req, res, next);
-}
+app.get('/sistema/api/v1/health/', (req, res) => {
+  res.json({
+    status: 'ok',
+    service: 'pos-mesita-demo',
+    version: '1.0.0',
+    timestamp: new Date().toISOString(),
+  });
+});
 
-app.use('/sistema/api/v1', apiAuthUnlessPublic, apiV1Router);
+app.use('/sistema/api/v1', requireApiKey, apiV1Router);
 
 // Root redirect
 app.get('/', (req, res) => {
@@ -197,6 +201,7 @@ const PORT = env.PORT;
 async function start() {
   try {
     await connectDatabase();
+    await ensurePlatformReady();
     app.listen(PORT, '0.0.0.0', () => {
       logger.info(`POS Mesita Demo running on port ${PORT}`);
       logger.info(`Swagger UI: http://localhost:${PORT}/sistema/api/v1/docs`);

@@ -44,7 +44,10 @@ const { asyncHandler } = require('../../middlewares/errorHandler');
  */
 router.get('/', asyncHandler(async (req, res) => {
   const result = await documentoService.listarDocumentos(req.query);
-  res.json(result);
+  res.json({
+    count: result.count,
+    results: result.results.map(formatDocumento),
+  });
 }));
 
 /**
@@ -131,6 +134,9 @@ router.post('/', asyncHandler(async (req, res) => {
  *                 properties:
  *                   forma_cobro: { type: string, enum: [EF, TC, TD, TR, CH] }
  *                   monto: { type: number }
+ *                   propina: { type: number }
+ *                   procesador: { type: string }
+ *                   detalle: { type: string }
  *                   referencia: { type: string }
  *     responses:
  *       200:
@@ -194,10 +200,21 @@ function formatDocumento(doc) {
       id: c.id,
       forma_cobro: c.formaCobro,
       monto: Number(c.monto),
+      propina: Number(c.propina || 0),
+      procesador: c.procesador || null,
+      detalle: c.detalle || null,
       referencia: c.referencia,
       created_at: c.createdAt,
     })),
     orden_id: doc.ordenId,
+    orden: doc.orden ? {
+      id: doc.orden.id,
+      estado: doc.orden.estado,
+      mesa: doc.orden.mesa ? {
+        id: doc.orden.mesa.id,
+        nombre: doc.orden.mesa.nombre,
+      } : null,
+    } : null,
     created_at: doc.createdAt,
     updated_at: doc.updatedAt,
   };

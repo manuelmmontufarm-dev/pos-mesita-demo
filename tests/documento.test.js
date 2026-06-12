@@ -197,6 +197,31 @@ describe('POST /sistema/api/v1/documento/ — PRE (pre-factura)', () => {
     expect(res.body.cliente.cedula).toBe('0922054366');
     expect(res.body.cliente.razon_social).toBeDefined();
   });
+
+  it('rejects applied payments above the document total', async () => {
+    const res = await request(app)
+      .post('/sistema/api/v1/documento/')
+      .set(AUTH)
+      .send({
+        ...validPREBody,
+        cobros: [{ forma_cobro: 'TC', monto: 24.00 }],
+      });
+
+    expect(res.status).toBe(400);
+    expect(res.body.error).toMatch(/no puede superar/i);
+  });
+
+  it('allows tips when the applied payment equals the document total', async () => {
+    const res = await request(app)
+      .post('/sistema/api/v1/documento/')
+      .set(AUTH)
+      .send({
+        ...validPREBody,
+        cobros: [{ forma_cobro: 'TC', monto: 23.00, propina: 2.00 }],
+      });
+
+    expect(res.status).toBe(201);
+  });
 });
 
 // ---------------------------------------------------------------------------

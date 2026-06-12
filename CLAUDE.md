@@ -5,7 +5,7 @@ A demo REST API for a restaurant POS system, built to test MesitaQR (Paga Ya) QR
 
 **Live URL:** https://pos-mesita-demo-production.up.railway.app  
 **Swagger UI:** https://pos-mesita-demo-production.up.railway.app/sistema/api/v1/docs  
-**API Key (dev):** `mesita2024secret`
+**Auth:** browser users use email/password sessions; legacy API-key access is stored only in environment variables.
 
 ## Stack
 - Node.js + Express (plain JavaScript, CommonJS)
@@ -18,11 +18,11 @@ src/
 ├── api/v1/          ← Route handlers (mesa, orden, documento, persona, producto, mesitaqr)
 ├── services/        ← Business logic
 ├── adapters/        ← contificoAdapter.js, mesitaqrAdapter.js
-├── middlewares/     ← auth.js (Token auth), errorHandler.js, logger.js
+├── middlewares/     ← auth.js (Bearer session + legacy Token auth), errorHandler.js, logger.js
 ├── config/          ← env.js, constants.js, database.js
 └── app.js           ← Express entry point
 prisma/
-└── schema.prisma    ← Database schema (9 models)
+└── schema.prisma    ← Platform + tenant POS database schema
 scripts/seed.js      ← Seeds categories, products, tables, demo customer
 tests/               ← Jest + Supertest (Prisma mocked)
 ```
@@ -33,10 +33,11 @@ tests/               ← Jest + Supertest (Prisma mocked)
 - **Documento** — PRE (pre-factura) or FAC (factura); Contifico-compatible field names
 - **MesitaqrSession** — QR payment session; estados: pendiente, pagado, expirado
 - **IVA = 15%** (Ecuador, Ley 004, April 2024)
-- **Servicio = 10%** service charge
+- **Servicio = 10%** service charge, configurable per restaurant
 
 ## Auth
-All `/sistema/api/v1/*` endpoints require: `Authorization: Token <API_KEY>`
+Browser users log in with email/password and then use `Authorization: Bearer <session>`.
+Legacy integrations may still use `Authorization: Token <API_KEY>`; do not commit real API keys.
 
 ## Local Development
 ```bash

@@ -6,7 +6,7 @@ import { money } from '../format.js';
 const TIPO_LABEL = { FAC: 'Factura', PRE: 'Pre-factura' };
 
 let allDocs = [];
-let filter = { q: '', tipo: 'ALL' };
+let filter = { q: '', tipo: 'ALL', fecha: 'ALL' };
 
 export async function renderHistorial(root) {
   root.innerHTML = '';
@@ -19,8 +19,7 @@ export async function renderHistorial(root) {
   root.appendChild(skeletonRows());
 
   try {
-    const res = await api.listDocumentos();
-    allDocs = (res && res.results) || [];
+    allDocs = await loadAllDocumentos();
   } catch (err) {
     root.innerHTML = '';
     root.appendChild(buildHeader());
@@ -40,6 +39,7 @@ function paint(root) {
   root.appendChild(buildHeader());
 
   const filtered = applyFilter(allDocs);
+  const grouped = groupByFecha(filtered);
 
   if (!filtered.length) {
     root.appendChild(h('div', { class: 'center-empty' },
@@ -51,10 +51,76 @@ function paint(root) {
     return;
   }
 
+  for (const group of grouped) {
+    root.appendChild(buildDateSummary(group));
+    root.appendChild(buildDocsTable(group.docs));
+  }
+}
+
+async function loadAllDocumentos() {
+  const pageSize = 100;
+  const docs = [];
+  let page = 1;
+  let total = Infinity;
+
+  while (docs.length < total) {
+    const res = await api.listDocumentos({ result_size: String(pageSize), result_page: String(page) });
+    const results = (res && res.results) || [];
+    total = Number(res && res.count);
+    if (!Number.isFinite(total)) total = docs.length + results.length;
+    docs.push(...results);
+    if (results.length < pageSize || !results.length) break;
+    page += 1;
+  }
+
+  return docs;
+}
+
+function applyFilter(docs) {
+  const q = filter.q.trim().toLowerCase();
+  return docs.filter((d) => {
+    if (filter.tipo !== 'ALL' && (d.tipo_documento || d.tipoDocumento) !== filter.tipo) return false;
+    if (filter.fecha !== 'ALL' && docDate(d) !== filter.fecha) return false;
+    if (!q) return true;
+    const blob = [
+      clienteNombre(d),
+      clienteId(d),
+      d.orden && d.orden.mesa && d.orden.mesa.nombre,
+      d.descripcion, d.id,
+    ].join(' ').toLowerCase();
+    return blob.includes(q);
+  });
+}
+
+function groupByFecha(docs) {
+  const byDate = new Map();
+  for (const d of docs) {
+    const fecha = docDate(d);
+    if (!byDate.has(fecha)) byDate.set(fecha, []);
+    byDate.get(fecha).push(d);
+  }
+  return [...byDate.entries()].map(([fecha, groupDocs]) => ({
+    fecha,
+    docs: groupDocs,
+    total: groupDocs.reduce((sum, d) => sum + (Number(d.total) || 0), 0),
+  }));
+}
+
+function buildDateSummary(group) {
+  return h('div', { class: 'history-date-summary' },
+    h('div', {},
+      h('div', { class: 'date' }, group.fecha),
+      h('div', { class: 'meta' }, `${group.docs.length} cuenta${group.docs.length === 1 ? '' : 's'} cerrada${group.docs.length === 1 ? '' : 's'}`),
+    ),
+    h('div', { class: 'total' }, money(group.total)),
+  );
+}
+
+function buildDocsTable(docs) {
   const table = h('table', { class: 'history-table' });
   table.appendChild(h('thead', {},
     h('tr', {},
-      h('th', {}, 'Fecha'),
+      h('th', {}, 'Hora'),
       h('th', {}, 'Tipo'),
       h('th', {}, 'Cliente'),
       h('th', {}, 'Mesa / Orden'),
@@ -64,12 +130,12 @@ function paint(root) {
     ),
   ));
   const tb = h('tbody', {});
-  for (const d of filtered) {
+  for (const d of docs) {
     tb.appendChild(h('tr', { class: 'row-link', onclick: () => openDocDetail(d) },
-      h('td', {}, d.fecha_emision || d.fechaEmision || '—'),
+      h('td', {}, docTime(d)),
       h('td', {}, h('span', { class: 'pill ' + (d.tipo_documento || d.tipoDocumento || 'FAC') },
         TIPO_LABEL[d.tipo_documento || d.tipoDocumento] || d.tipo_documento || d.tipoDocumento)),
-      h('td', {}, d.cliente_razon_social || d.clienteRazonSocial || '—'),
+      h('td', {}, clienteNombre(d)),
       h('td', {}, (d.orden && d.orden.mesa && d.orden.mesa.nombre) || ((d.orden_id || d.ordenId || '').toString().slice(0, 8) || '—')),
       h('td', {}, buildCobrosCell(d)),
       h('td', { class: 'tright', style: { fontWeight: 700 } }, money(d.total)),
@@ -79,23 +145,7 @@ function paint(root) {
     ));
   }
   table.appendChild(tb);
-  root.appendChild(table);
-}
-
-function applyFilter(docs) {
-  const q = filter.q.trim().toLowerCase();
-  return docs.filter((d) => {
-    if (filter.tipo !== 'ALL' && (d.tipo_documento || d.tipoDocumento) !== filter.tipo) return false;
-    if (!q) return true;
-    const blob = [
-      d.cliente_razon_social || d.clienteRazonSocial,
-      d.cliente_cedula || d.clienteCedula,
-      d.cliente_ruc || d.clienteRuc,
-      d.orden && d.orden.mesa && d.orden.mesa.nombre,
-      d.descripcion, d.id,
-    ].join(' ').toLowerCase();
-    return blob.includes(q);
-  });
+  return table;
 }
 
 function buildCobrosCell(d) {
@@ -142,8 +192,47 @@ function buildHeader() {
     h('option', { value: 'FAC', selected: filter.tipo === 'FAC' ? 'selected' : null }, 'Solo facturas'),
     h('option', { value: 'PRE', selected: filter.tipo === 'PRE' ? 'selected' : null }, 'Solo pre-facturas'),
   ));
+
+  const fechas = uniqueFechas(allDocs);
+  tb.appendChild(h('select', { class: 'select', style: { maxWidth: '180px' },
+    onchange: (e) => { filter.fecha = e.target.value; paint(document.getElementById('view-root')); },
+  },
+    h('option', { value: 'ALL', selected: filter.fecha === 'ALL' ? 'selected' : null }, 'Todas las fechas'),
+    ...fechas.map((fecha) => h('option', { value: fecha, selected: filter.fecha === fecha ? 'selected' : null }, fecha)),
+  ));
   wrap.appendChild(tb);
   return wrap;
+}
+
+function uniqueFechas(docs) {
+  return [...new Set(docs.map(docDate))];
+}
+
+function docDate(d) {
+  return d.fecha_emision || d.fechaEmision || formatDate(d.created_at || d.createdAt) || 'Sin fecha';
+}
+
+function docTime(d) {
+  const raw = d.created_at || d.createdAt || d.updated_at || d.updatedAt;
+  if (!raw) return '—';
+  const date = new Date(raw);
+  if (Number.isNaN(date.getTime())) return '—';
+  return date.toLocaleTimeString('es-EC', { hour: '2-digit', minute: '2-digit' });
+}
+
+function formatDate(raw) {
+  if (!raw) return '';
+  const date = new Date(raw);
+  if (Number.isNaN(date.getTime())) return '';
+  return date.toLocaleDateString('es-EC', { day: '2-digit', month: '2-digit', year: 'numeric' });
+}
+
+function clienteNombre(d) {
+  return d.cliente?.razon_social || d.cliente_razon_social || d.clienteRazonSocial || 'CONSUMIDOR FINAL';
+}
+
+function clienteId(d) {
+  return d.cliente?.ruc || d.cliente?.cedula || d.cliente_ruc || d.clienteRuc || d.cliente_cedula || d.clienteCedula || '';
 }
 
 function restoreFocus(id) {
@@ -174,10 +263,10 @@ async function openDocDetail(d) {
 
   body.appendChild(h('div', { class: 'card card-pad', style: { marginBottom: '12px' } },
     h('div', { style: { fontSize: '0.78rem', color: 'var(--mute)', textTransform: 'uppercase', letterSpacing: '0.05em', marginBottom: '6px' } }, 'Cliente'),
-    h('div', { style: { fontWeight: 700 } }, full.cliente_razon_social || full.clienteRazonSocial || 'CONSUMIDOR FINAL'),
+    h('div', { style: { fontWeight: 700 } }, clienteNombre(full)),
     h('div', { style: { color: 'var(--mute)', fontSize: '0.86rem' } },
-      (full.cliente_ruc || full.clienteRuc || full.cliente_cedula || full.clienteCedula || '') +
-      (full.cliente_email || full.clienteEmail ? ' · ' + (full.cliente_email || full.clienteEmail) : '')),
+      clienteId(full) +
+      (full.cliente?.email || full.cliente_email || full.clienteEmail ? ' · ' + (full.cliente?.email || full.cliente_email || full.clienteEmail) : '')),
   ));
 
   body.appendChild(h('div', { class: 'totals', style: { borderRadius: '10px', border: '1px solid var(--line)' } },
@@ -215,7 +304,7 @@ function printDoc(full) {
   region.appendChild(h('h1', {}, '🍽️ POS Mesita — ' + (full.tipo_documento || full.tipoDocumento || 'Documento')));
   region.appendChild(h('div', {}, 'Fecha: ' + (full.fecha_emision || full.fechaEmision || '—')));
   region.appendChild(h('div', {}, 'Documento: #' + String(full.id || '').slice(0, 8)));
-  region.appendChild(h('div', {}, 'Cliente: ' + (full.cliente_razon_social || full.clienteRazonSocial || 'CONSUMIDOR FINAL')));
+  region.appendChild(h('div', {}, 'Cliente: ' + clienteNombre(full)));
   region.appendChild(h('div', { style: { marginTop: '14px', textAlign: 'right' } },
     h('div', {}, 'Subtotal: ' + money((Number(full.subtotal_0) || 0) + (Number(full.subtotal_15) || 0))),
     h('div', {}, 'IVA 15%: ' + money(full.iva)),

@@ -1,6 +1,6 @@
 'use strict';
 
-const { getPrisma } = require('../config/database');
+const { getPrisma, getRequestContext } = require('../config/database');
 const { ESTADO_ORDEN, ESTADO_MESA, PAGINATION, IVA_RATE, SERVICE_RATE } = require('../config/constants');
 const mesaService = require('./mesaService');
 
@@ -199,8 +199,11 @@ async function calcularTotales(ordenId) {
     }
   }
 
+  const serviceSettings = getServiceSettings();
   const iva = round2(subtotal15 * IVA_RATE);
-  const servicio = round2((subtotal0 + subtotal15) * SERVICE_RATE);
+  const servicio = serviceSettings.enabled
+    ? round2((subtotal0 + subtotal15) * serviceSettings.rate)
+    : 0;
   const total = round2(subtotal0 + subtotal15 + iva + servicio);
 
   return {
@@ -208,7 +211,20 @@ async function calcularTotales(ordenId) {
     subtotal_15: round2(subtotal15),
     iva,
     servicio,
+    service_enabled: serviceSettings.enabled,
+    service_rate: serviceSettings.rate,
     total,
+  };
+}
+
+function getServiceSettings() {
+  const restaurant = getRequestContext().restaurant;
+  if (!restaurant) return { enabled: true, rate: SERVICE_RATE };
+  const rate = Number(restaurant.service_charge_rate ?? restaurant.serviceChargeRate ?? SERVICE_RATE);
+  const enabled = Boolean(restaurant.service_charge_enabled ?? restaurant.serviceChargeEnabled ?? true);
+  return {
+    enabled,
+    rate: Number.isFinite(rate) ? rate : SERVICE_RATE,
   };
 }
 

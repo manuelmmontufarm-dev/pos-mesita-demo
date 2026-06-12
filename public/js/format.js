@@ -41,6 +41,7 @@ export const FACTURA_AUTO_THRESHOLD = 50;
 // Restaurant header used in printed precuentas and facturas.
 // Edit these to match the real restaurant once data is available from the backend /config endpoint.
 export const RESTAURANT_INFO = {
+  nombreComercial: 'POS Mesita',
   razonSocial: 'DEMO RESTAURANTE S.A.',
   ruc:         '0900000001001',
   direccion:   'Av. 9 de Octubre 123, Guayaquil — Ecuador',

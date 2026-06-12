@@ -34,7 +34,7 @@ export function openCobroModal({ mesa, orden, totales, onSuccess }) {
 function getHanded() { return ctx.payments.reduce((s, p) => s + (Number(p.amount) || 0), 0); }
 function getTip()    { return ctx.payments.reduce((s, p) => s + (Number(p.tip) || 0), 0); }
 function getSaldo()  { return Math.max(0, round2(ctx.total - getHanded())); }
-function getVuelto() { return Math.max(0, round2(getHanded() - ctx.total)); }
+function getVuelto() { return ctx.payments.reduce((s, p) => s + Math.max(0, round2(Number(p.tendered || p.amount || 0) - Number(p.amount || 0))), 0); }
 function round2(n)   { return Math.round((Number(n) || 0) * 100) / 100; }
 
 // ---- Main render ----
@@ -213,7 +213,7 @@ function buildPaymentsTable() {
     const methodLbl = PAYMENT_METHODS.find((m) => m.code === p.method)?.label || p.method;
     tb.appendChild(h('tr', {},
       h('td', {}, h('span', { class: 'row-method' }, (TAB_ICONS[p.method] || '') + ' ' + methodLbl)),
-      h('td', {}, p.detalle || '—'),
+      h('td', {}, paymentDetail(p)),
       h('td', { class: 'tright' }, p.tip ? money(p.tip) : '—'),
       h('td', { class: 'tright', style: { fontWeight: 700 } }, money(p.amount)),
       h('td', {},
@@ -226,7 +226,32 @@ function buildPaymentsTable() {
 }
 
 function addPayment(p) {
-  ctx.payments.push({ id: 'p-' + Date.now() + '-' + Math.random().toString(36).slice(2, 6), ...p });
+  const saldo = getSaldo();
+  const amount = round2(p.amount);
+  const tip = Math.max(0, round2(p.tip || 0));
+
+  if (amount <= 0 && tip <= 0) {
+    return toast('Ingresa un monto mayor a 0', 'bad');
+  }
+  if (saldo <= 0 && amount > 0) {
+    return toast('La cuenta ya esta cubierta. Agrega solo propina si hace falta.', 'bad');
+  }
+
+  const payment = { ...p, amount, tip };
+  if (p.method === 'EF') {
+    if (amount > saldo) {
+      payment.tendered = amount;
+      payment.amount = round2(saldo);
+      payment.detalle = `${p.detalle || 'Efectivo'} · recibido ${money(amount)}`;
+    }
+  } else if (amount > saldo + 0.005) {
+    return toast('No puedes cobrar mas del saldo con este metodo. Registra el extra como propina.', 'bad', 5000);
+  }
+
+  ctx.payments.push({
+    id: 'p-' + Date.now() + '-' + Math.random().toString(36).slice(2, 6),
+    ...payment,
+  });
   render();
 }
 function removePayment(id) {
@@ -360,6 +385,22 @@ async function onAceptar(btn) {
         ...(p.detalle ? { detalle: p.detalle } : {}),
       }));
       const totalTip = getTip();
+      const detalles = (ctx.orden?.detalles || []).map((d) => {
+        const cantidad = Number(d.cantidad) || 1;
+        const precio = Number(d.precio) || 0;
+        const porcentajeIva = d.porcentaje_iva ?? d.porcentajeIva ?? 15;
+        const base = round2(cantidad * precio);
+        return {
+          producto_id: d.producto_id || d.productoId || null,
+          cantidad,
+          precio,
+          porcentaje_iva: porcentajeIva,
+          porcentaje_descuento: Number(d.porcentaje_descuento || d.porcentajeDescuento || 0),
+          base_cero: porcentajeIva === 0 ? base : 0,
+          base_gravable: porcentajeIva === 0 ? 0 : base,
+          base_no_gravable: 0,
+        };
+      });
       const body = {
         fecha_emision: todayDDMMYYYY(),
         tipo_documento: 'FAC',
@@ -374,7 +415,7 @@ async function onAceptar(btn) {
         total: Number(t.total || ctx.total),
         ...(totalTip > 0 ? { propina: totalTip } : {}),
         orden_id: ctx.orden?.id,
-        cliente, detalles: [], cobros,
+        cliente, detalles, cobros,
       };
       const doc = await api.createDocumento(body);
       closeModal();
@@ -407,7 +448,7 @@ function showSuccess(doc) {
     h('p', { style: { color: 'var(--mute)', margin: 0 } }, `Factura ${doc.id ? '#' + String(doc.id).slice(0, 8) : ''} creada para ${ctx.mesa?.nombre || ''}`),
     h('div', { style: { marginTop: '12px', display: 'flex', justifyContent: 'center', gap: '8px', flexWrap: 'wrap' } },
       ctx.payments.map((p) => h('span', { class: 'row-method', style: { fontSize: '0.78rem' } },
-        (PAYMENT_METHODS.find((m) => m.code === p.method)?.label || p.method) + ' ' + money(p.amount)
+        (PAYMENT_METHODS.find((m) => m.code === p.method)?.label || p.method) + ' ' + money(paymentCharge(p))
       )),
     ),
     (doc.autorizacion_sri || doc.autorizacionSRI) ? h('div', { style: { marginTop: '14px', fontSize: '0.8rem', color: 'var(--mute)' } },
@@ -444,7 +485,10 @@ function installFacturaPrintRegion(doc) {
 
   // Header: restaurant identity, single block
   wrap.appendChild(h('div', { style: { textAlign: 'center', marginBottom: '8px' } },
-    h('div', { style: { fontWeight: 800, fontSize: '1.25rem', letterSpacing: '0.05em' } }, RESTAURANT_INFO.razonSocial),
+    h('div', { style: { fontWeight: 800, fontSize: '1.25rem', letterSpacing: '0.02em' } }, RESTAURANT_INFO.nombreComercial || RESTAURANT_INFO.razonSocial),
+    RESTAURANT_INFO.nombreComercial && RESTAURANT_INFO.razonSocial !== RESTAURANT_INFO.nombreComercial
+      ? h('div', { style: { fontSize: '0.82rem', fontWeight: 700 } }, RESTAURANT_INFO.razonSocial)
+      : null,
     h('div', { style: { fontSize: '0.78rem', color: '#444' } }, RESTAURANT_INFO.direccion),
     h('div', { style: { fontSize: '0.78rem', color: '#444' } }, 'Tel. ' + RESTAURANT_INFO.telefono + ' · R.U.C. ' + RESTAURANT_INFO.ruc),
   ));
@@ -514,8 +558,8 @@ function installFacturaPrintRegion(doc) {
         h('span', {}, 'Subtotal IVA 15%'), h('span', {}, money(Number(t.subtotal_15) || 0))),
       h('div', { style: { display: 'flex', justifyContent: 'space-between', padding: '2px 0' } },
         h('span', {}, 'IVA 15%'), h('span', {}, money(t.iva))),
-      h('div', { style: { display: 'flex', justifyContent: 'space-between', padding: '2px 0' } },
-        h('span', {}, 'Servicio 10%'), h('span', {}, money(t.servicio))),
+      t.service_enabled === false ? null : h('div', { style: { display: 'flex', justifyContent: 'space-between', padding: '2px 0' } },
+        h('span', {}, serviceLabel(t)), h('span', {}, money(t.servicio))),
       h('div', { style: { display: 'flex', justifyContent: 'space-between', padding: '6px 0', borderTop: '1px solid #000', fontWeight: 800, fontSize: '1.05rem', marginTop: '4px' } },
         h('span', {}, 'TOTAL'), h('span', {}, money(t.total))),
     ),
@@ -528,7 +572,7 @@ function installFacturaPrintRegion(doc) {
       h('span', {}, (PAYMENT_METHODS.find((m) => m.code === p.method)?.label || p.method) +
         (p.detalle ? ` — ${p.detalle}` : '') +
         (p.tip ? ` (propina ${money(p.tip)})` : '')),
-      h('span', {}, money(p.amount)),
+      h('span', {}, money(paymentCharge(p))),
     )),
   ));
 
@@ -539,4 +583,18 @@ function installFacturaPrintRegion(doc) {
   ));
 
   document.body.appendChild(wrap);
+}
+
+function paymentDetail(p) {
+  if (!p.tendered || Number(p.tendered) <= Number(p.amount)) return p.detalle || '—';
+  return `${p.detalle || 'Efectivo'} · vuelto ${money(Number(p.tendered) - Number(p.amount))}`;
+}
+
+function paymentCharge(p) {
+  return round2(Number(p.amount || 0) + Number(p.tip || 0));
+}
+
+function serviceLabel(t) {
+  const pct = Math.round(Number(t.service_rate ?? 0.10) * 100);
+  return `Servicio ${pct}%`;
 }

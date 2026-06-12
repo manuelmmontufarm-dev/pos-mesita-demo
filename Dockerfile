@@ -18,11 +18,11 @@ COPY scripts ./scripts/
 RUN npx prisma generate
 
 # Expose port (Railway injects PORT env var)
-EXPOSE 3000
+EXPOSE 8080
 
 # Healthcheck
 HEALTHCHECK --interval=30s --timeout=10s --start-period=30s --retries=3 \
-  CMD wget -qO- http://localhost:${PORT:-3000}/sistema/api/v1/health/ || exit 1
+  CMD node -e "fetch('http://127.0.0.1:' + (process.env.PORT || 8080) + '/sistema/api/v1/health/').then(r => process.exit(r.ok ? 0 : 1)).catch(() => process.exit(1))"
 
 # Run migrations then start server
-CMD ["node", "src/app.js"]
+CMD ["node", "scripts/start-production.js"]

@@ -34,6 +34,7 @@ async function listarDocumentos(opts = {}) {
         cobros: true,
         detallesDoc: true,
         persona: true,
+        orden: { include: { mesa: true } },
       },
     }),
   ]);
@@ -71,6 +72,7 @@ async function crearDocumento(body) {
 
   const tipoDocumento = body.tipo_documento || TIPO_DOCUMENTO.PRE;
   const isFAC = tipoDocumento === TIPO_DOCUMENTO.FAC;
+  validateCobrosNoOverpay(body.cobros || [], Number(body.total || 0));
 
   // Resolve or upsert persona from cliente data
   let personaId = null;
@@ -136,6 +138,9 @@ async function crearDocumento(body) {
         documentoId: doc.id,
         formaCobro: c.forma_cobro,
         monto: c.monto,
+        propina: c.propina || 0,
+        procesador: c.procesador || null,
+        detalle: c.detalle || null,
         referencia: c.referencia || null,
       })),
     });
@@ -157,18 +162,28 @@ async function actualizarDocumento(id, data) {
   const prisma = getPrisma();
 
   // Validate document exists
-  await prisma.documento.findUniqueOrThrow({ where: { id } });
+  const existingDoc = await prisma.documento.findUniqueOrThrow({
+    where: { id },
+    include: { cobros: true },
+  });
 
   const updateData = {};
   if (data.estado !== undefined) updateData.estado = data.estado;
 
   // Add a cobro if provided
   if (data.cobro) {
+    validateCobrosNoOverpay(
+      [...(existingDoc.cobros || []), data.cobro],
+      Number(existingDoc.total || 0)
+    );
     await prisma.cobro.create({
       data: {
         documentoId: id,
         formaCobro: data.cobro.forma_cobro,
         monto: data.cobro.monto,
+        propina: data.cobro.propina || 0,
+        procesador: data.cobro.procesador || null,
+        detalle: data.cobro.detalle || null,
         referencia: data.cobro.referencia || null,
       },
     });
@@ -246,6 +261,26 @@ function _todayEC() {
     year: 'numeric',
     timeZone: 'America/Guayaquil',
   });
+}
+
+function validateCobrosNoOverpay(cobros, total) {
+  if (!Array.isArray(cobros) || cobros.length === 0) return;
+  const paid = cobros.reduce((sum, c) => sum + Number(c.monto || 0), 0);
+  const tip = cobros.reduce((sum, c) => sum + Number(c.propina || 0), 0);
+  if (paid < -0.005 || tip < -0.005) {
+    const err = new Error('Los montos de cobro no pueden ser negativos.');
+    err.statusCode = 400;
+    throw err;
+  }
+  if (round2(paid) > round2(total) + 0.005) {
+    const err = new Error('El monto aplicado a la cuenta no puede superar el total. Registra el extra como propina.');
+    err.statusCode = 400;
+    throw err;
+  }
+}
+
+function round2(n) {
+  return Math.round((Number(n) || 0) * 100) / 100;
 }
 
 module.exports = {

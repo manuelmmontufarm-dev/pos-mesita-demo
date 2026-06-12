@@ -157,6 +157,9 @@ model Cobro {
   documento   Documento  @relation(fields: [documentoId], references: [id], onDelete: Cascade)
   formaCobro  String     // EF | TC | TD | TR | CH
   monto       Decimal    @db.Decimal(10, 2)
+  propina     Decimal    @db.Decimal(10, 2) @default(0)
+  procesador  String?
+  detalle     String?
   referencia  String?
   createdAt   DateTime   @default(now())
 
@@ -259,4 +262,88 @@ model MesitaqrSession {
   @@index([sessionId])
   @@index([mesaId])
   @@map("mesitaqr_sessions")
+}
+
+// -----------------------------------------------------------
+// PlatformUser — login identity shared across restaurants
+// -----------------------------------------------------------
+model PlatformUser {
+  id           String               @id @default(uuid())
+  email        String               @unique
+  name         String
+  passwordHash String
+  isActive     Boolean              @default(true)
+  createdAt    DateTime             @default(now())
+  updatedAt    DateTime             @updatedAt
+
+  memberships  PlatformMembership[]
+  sessions     PlatformSession[]
+
+  @@map("platform_users")
+}
+
+// -----------------------------------------------------------
+// PlatformRestaurant — global tenant registry
+// tenantSchema points to the isolated PostgreSQL schema.
+// -----------------------------------------------------------
+model PlatformRestaurant {
+  id                   String               @id @default(uuid())
+  tenantSchema         String               @unique
+  slug                 String               @unique
+  name                 String
+  legalName            String?
+  ruc                  String?
+  address              String?
+  city                 String?
+  phone                String?
+  email                String?
+  serviceChargeEnabled Boolean              @default(true)
+  serviceChargeRate    Decimal              @db.Decimal(5, 4) @default(0.10)
+  setupCompleted       Boolean              @default(false)
+  createdAt            DateTime             @default(now())
+  updatedAt            DateTime             @updatedAt
+
+  memberships          PlatformMembership[]
+  sessions             PlatformSession[]
+
+  @@map("platform_restaurants")
+}
+
+// -----------------------------------------------------------
+// PlatformMembership — user role inside a restaurant
+// role codes: owner | manager | server
+// -----------------------------------------------------------
+model PlatformMembership {
+  id           String             @id @default(uuid())
+  userId       String
+  user         PlatformUser       @relation(fields: [userId], references: [id], onDelete: Cascade)
+  restaurantId String
+  restaurant   PlatformRestaurant @relation(fields: [restaurantId], references: [id], onDelete: Cascade)
+  role         String             @default("server")
+  createdAt    DateTime           @default(now())
+
+  @@unique([userId, restaurantId])
+  @@index([restaurantId])
+  @@map("platform_memberships")
+}
+
+// -----------------------------------------------------------
+// PlatformSession — bearer-token login session
+// Stores only a SHA-256 hash of the browser token.
+// -----------------------------------------------------------
+model PlatformSession {
+  id           String             @id @default(uuid())
+  tokenHash    String             @unique
+  userId       String
+  user         PlatformUser       @relation(fields: [userId], references: [id], onDelete: Cascade)
+  restaurantId String
+  restaurant   PlatformRestaurant @relation(fields: [restaurantId], references: [id], onDelete: Cascade)
+  expiresAt    DateTime
+  revokedAt    DateTime?
+  createdAt    DateTime           @default(now())
+
+  @@index([userId])
+  @@index([restaurantId])
+  @@index([expiresAt])
+  @@map("platform_sessions")
 }

@@ -404,10 +404,11 @@ function editNote(d) {
 
 function buildTotals() {
   const t = state.current.totales || { subtotal_15: 0, subtotal_0: 0, iva: 0, servicio: 0, total: 0 };
+  const serviceEnabled = t.service_enabled !== false;
   return h('div', { class: 'totals' },
     h('div', { class: 'row' }, h('span', {}, 'Subtotal'), h('span', {}, money((Number(t.subtotal_0) || 0) + (Number(t.subtotal_15) || 0)))),
     h('div', { class: 'row' }, h('span', {}, 'IVA 15%'), h('span', {}, money(t.iva))),
-    h('div', { class: 'row' }, h('span', {}, 'Servicio 10%'), h('span', {}, money(t.servicio))),
+    serviceEnabled ? h('div', { class: 'row' }, h('span', {}, serviceLabel(t)), h('span', {}, money(t.servicio))) : null,
     h('div', { class: 'row total' }, h('span', {}, 'Total'), h('span', {}, money(t.total))),
   );
 }
@@ -461,7 +462,10 @@ function buildPrintRegion() {
 
   // Restaurant header — cleaner, centered
   wrap.appendChild(h('div', { style: { textAlign: 'center', marginBottom: '10px' } },
-    h('div', { style: { fontWeight: 800, fontSize: '1.25rem', letterSpacing: '0.05em' } }, RESTAURANT_INFO.razonSocial),
+    h('div', { style: { fontWeight: 800, fontSize: '1.25rem', letterSpacing: '0.02em' } }, RESTAURANT_INFO.nombreComercial || RESTAURANT_INFO.razonSocial),
+    RESTAURANT_INFO.nombreComercial && RESTAURANT_INFO.razonSocial !== RESTAURANT_INFO.nombreComercial
+      ? h('div', { style: { fontSize: '0.82rem', fontWeight: 700 } }, RESTAURANT_INFO.razonSocial)
+      : null,
     h('div', { style: { fontSize: '0.8rem', color: '#444' } }, RESTAURANT_INFO.direccion),
     h('div', { style: { fontSize: '0.8rem', color: '#444' } }, 'Tel. ' + RESTAURANT_INFO.telefono + ' · R.U.C. ' + RESTAURANT_INFO.ruc),
   ));
@@ -473,7 +477,7 @@ function buildPrintRegion() {
       fontWeight: 800, letterSpacing: '0.08em', fontSize: '0.95rem', lineHeight: 1.3,
     },
   },
-    h('div', {}, 'DOCUMENTO INFORMATIVO'),
+    h('div', {}, 'PRECUENTA'),
     h('div', { style: { fontSize: '0.78rem', fontWeight: 700, marginTop: '2px' } }, 'SIN VALIDEZ TRIBUTARIA'),
   ));
 
@@ -520,8 +524,8 @@ function buildPrintRegion() {
         h('span', {}, 'Subtotal'), h('span', {}, money((Number(t.subtotal_0) || 0) + (Number(t.subtotal_15) || 0)))),
       h('div', { style: { display: 'flex', justifyContent: 'space-between', padding: '2px 0' } },
         h('span', {}, 'IVA 15%'), h('span', {}, money(t.iva))),
-      h('div', { style: { display: 'flex', justifyContent: 'space-between', padding: '2px 0' } },
-        h('span', {}, 'Servicio 10%'), h('span', {}, money(t.servicio))),
+      t.service_enabled === false ? null : h('div', { style: { display: 'flex', justifyContent: 'space-between', padding: '2px 0' } },
+        h('span', {}, serviceLabel(t)), h('span', {}, money(t.servicio))),
       h('div', { style: { display: 'flex', justifyContent: 'space-between', padding: '6px 0', borderTop: '1px solid #000', fontWeight: 800, fontSize: '1.1rem', marginTop: '4px' } },
         h('span', {}, 'TOTAL'), h('span', {}, money(t.total))),
     ),
@@ -536,6 +540,11 @@ function buildPrintRegion() {
     'Solicite su factura al momento de pagar.',
   ));
   return wrap;
+}
+
+function serviceLabel(t) {
+  const pct = Math.round(Number(t.service_rate ?? 0.10) * 100);
+  return `Servicio ${pct}%`;
 }
 
 function iconWrap(name, cls, size) {
