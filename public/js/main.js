@@ -19,6 +19,8 @@ import { renderHistorial } from './screens/historial.js';
 import { renderMesasConfig } from './screens/mesas-config.js';
 import { renderMenu } from './screens/menu.js';
 
+const MIN_TRANSITION_MS = 650;
+
 const ROUTES = [
   { match: /^#\/mesa\/(.+)$/,   render: (root, m) => renderPOS(root, decodeURIComponent(m[1])) },
   { match: /^#\/mesas$/,        render: (root) => renderFloor(root) },
@@ -58,6 +60,7 @@ function needsSetup() {
 
 async function onAuthenticated(opts = {}) {
   const root = document.getElementById('view-root');
+  const startedAt = Date.now();
   renderAppLoading(root, {
     title: opts.title || 'Preparando POS',
     message: opts.message || 'Cargando mesas, menu y configuracion.',
@@ -79,6 +82,7 @@ async function onAuthenticated(opts = {}) {
   }
 
   if (!location.hash || location.hash === '#/') location.hash = '#/mesas';
+  await waitForTransition(startedAt);
   if (opts.successToast) toast(opts.successToast, 'ok');
   route();
 }
@@ -247,15 +251,22 @@ async function withSettingsLoading(btn, fn) {
 
 async function handleLogout() {
   const root = document.getElementById('view-root');
+  const startedAt = Date.now();
   renderAppLoading(root, {
     title: 'Cerrando sesion',
     message: 'Limpiando esta sesion del navegador.',
   });
   try { await api.logout(); } catch (_) {}
+  await waitForTransition(startedAt);
   clearSession();
   location.hash = '';
   paintHeader();
   renderAuth(root, onAuthenticated);
+}
+
+function waitForTransition(startedAt) {
+  const remaining = MIN_TRANSITION_MS - (Date.now() - startedAt);
+  return remaining > 0 ? new Promise((resolve) => setTimeout(resolve, remaining)) : Promise.resolve();
 }
 
 async function start() {
